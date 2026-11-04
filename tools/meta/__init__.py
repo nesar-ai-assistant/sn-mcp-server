@@ -13,7 +13,7 @@ from typing import Annotated
 
 from pydantic import Field, validate_call
 
-from ..common import REPO_ROOT, ArtifactResult, ok
+from ..common import REPO_ROOT, TIERS, ArtifactResult, ok
 from .skills import skill_index, skill_text
 
 _CFG = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["mcp-server"]
@@ -25,17 +25,31 @@ def _datasets() -> dict:
     return DATASETS
 
 
-def _list_datasets() -> ArtifactResult:
-    """List the public datasets this server exposes. Call this first.
+def _list_datasets(
+    tier: Annotated[int | None, Field(ge=1, le=3, description="Only datasets with products of this data tier "
+                                      "(1 raw/catalog, 2 summary statistics, 3 published inference). null = all.")] = None,
+) -> ArtifactResult:
+    """List the public datasets this server exposes, organised by DATA TIER. Call this first.
 
-    Each entry: survey/release, what products are available (summary
-    statistics, covariances, chains, catalogs), where the data comes from
-    (bundled in the repo vs downloaded on first use, with the source URL),
-    the citation, and which tools use it.
+    Tier 1 = raw / catalog-level data, tier 2 = processed summary statistics
+    with covariances, tier 3 = published posteriors / parameter constraints.
+    Analyses should be built on tier-1 and tier-2 products; tier 3 is for
+    comparison only. Each entry gives products per tier, access (bundled vs
+    downloaded on first use), and which tools read it.
     """
     ds = _datasets()
-    brief = {k: {kk: v.get(kk) for kk in ("title", "products", "access", "tools")} for k, v in ds.items()}
-    return ok(f"{len(ds)} datasets. Use describe_{PREFIX}_dataset for details.", datasets=brief)
+    brief = {}
+    for k, v in ds.items():
+        products = v.get("products", {})
+        if tier is not None and not products.get(f"tier{tier}"):
+            continue
+        brief[k] = {kk: v.get(kk) for kk in ("title", "products", "access", "tools")}
+    counts = {t: sum(1 for v in ds.values() if v.get("products", {}).get(f"tier{t}")) for t in (1, 2, 3)}
+    return ok(f"{len(brief)} datasets{'' if tier is None else f' with tier-{tier} products'}. "
+              f"Datasets with tier-1/2/3 products: {counts[1]}/{counts[2]}/{counts[3]}. "
+              "Build analyses on tier 1-2; tier 3 is comparison-only. "
+              f"Use describe_{PREFIX}_dataset for details.",
+              datasets=brief, tiers={str(k): v for k, v in TIERS.items()}, tier_counts=counts)
 
 
 def _describe_dataset(
@@ -80,5 +94,8 @@ for _name, _fn in _EXPORTS.items():
     _fn = validate_call(_fn)
     _fn.__name__ = _fn.__qualname__ = _name
     globals()[_name] = _fn
+
+for _name, _fn in list(_EXPORTS.items()):
+    globals()[_name].data_tier = "meta"
 
 __all__ = list(_EXPORTS)  # noqa: PLE0604 - names depend on skill_prefix

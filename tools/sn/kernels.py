@@ -100,10 +100,18 @@ SOURCES = {
               "Pantheon%2B_Data/4_DISTANCES_AND_COVAR/Pantheon%2BSH0ES.dat",
         "cov": "https://raw.githubusercontent.com/PantheonPlusSH0ES/DataRelease/main/"
                "Pantheon%2B_Data/4_DISTANCES_AND_COVAR/Pantheon%2BSH0ES_STAT%2BSYS.cov",
+        "salt2_params": "https://raw.githubusercontent.com/PantheonPlusSH0ES/DataRelease/main/"
+                        "Pantheon%2B_Data/4_DISTANCES_AND_COVAR/Pantheon%2BSH0ES.dat",
+        "lc_base": "https://raw.githubusercontent.com/PantheonPlusSH0ES/DataRelease/main/"
+                   "Pantheon%2B_Data/1_DATA/photometry/",
     },
     "des5yr": {
         "hd": "https://raw.githubusercontent.com/des-science/DES-SN5YR/1.3/4_DISTANCES_COVMAT/DES-SN5YR_HD.csv",
         "cov": "https://raw.githubusercontent.com/des-science/DES-SN5YR/1.3/4_DISTANCES_COVMAT/STAT%2BSYS.txt.gz",
+        "salt2_params": "https://raw.githubusercontent.com/des-science/DES-SN5YR/1.3/"
+                        "4_DISTANCES_COVMAT/DES-SN5YR_HD%2BMetaData.csv",
+        "lcplot": "https://raw.githubusercontent.com/des-science/DES-SN5YR/1.3/"
+                  "0_DATA/DES5YR_SALT3_LCFIT.LCPLOT.gz",
     },
     "union3": {
         "hd": "https://raw.githubusercontent.com/rubind/union3_release/main/mu_mat_union3_cosmo%3D2_mu.fits",
@@ -113,6 +121,193 @@ SOURCES = {
         "cov": "https://raw.githubusercontent.com/des-science/DES-SN5YR/main/4_DISTANCES_COVMAT/STAT%2BSYS.npz",
     },
 }
+
+# ------------- light-curve file index (Pantheon+) bundled as CSV
+LC_INDEX_COLS = ("cid", "folder", "path")  # data/pantheonplus/lc_index.csv
+
+
+def parse_snana_lc(text: str) -> dict:
+    """Parse an SNANA-format SN light-curve text file into arrays.
+
+    Returns dict(snid, survey, ra, dec, z_hel, z_cmb, mwebv, peak_mjd, filters,
+                 mjd, band, flux, flux_err[, mag, mag_err]).
+    """
+    import re
+    meta = {}
+    obs = []
+    varlist = None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("END"):
+            break
+        if line.startswith("VARLIST:"):
+            varlist = line.split(":")[1].split()
+            continue
+        if line.startswith("OBS:"):
+            parts = line.split()[1:]
+            if varlist:
+                row = {varlist[i]: parts[i] for i in range(min(len(varlist), len(parts)))}
+            else:
+                row = {"raw": parts}
+            obs.append(row)
+            continue
+        m = re.match(r"^(\w[\w\(\)]*)\s*:\s*(.+)", line)
+        if m:
+            key = m.group(1).strip()
+            val = m.group(2).strip()
+            if key not in meta:
+                meta[key] = val
+
+    # Extract metadata
+    def _float(k, default=None):
+        v = meta.get(k, "")
+        try:
+            return float(v.split()[0])
+        except (ValueError, IndexError):
+            return default
+
+    snid = meta.get("SNID", "").strip()
+    survey = meta.get("SURVEY", "").strip()
+    ra = _float("RA")
+    dec = _float("DECL", _float("DEC"))
+    z_hel = _float("REDSHIFT_HELIO")
+    z_cmb = _float("REDSHIFT_CMB")
+    mwebv = _float("MWEBV", 0.0)
+    peak_mjd = _float("SEARCH_PEAKMJD", _float("PEAKMJD"))
+    filters = meta.get("FILTERS", "").strip()
+
+    # Parse obs
+    mjd, band, flux, flux_err, mag, mag_err = [], [], [], [], [], []
+    for row in obs:
+        if isinstance(row, dict) and "MJD" in row:
+            _mjd = float(row["MJD"])
+            if _mjd < 0:
+                continue
+            mjd.append(_mjd)
+            band.append(row.get("FLT", row.get("BAND", "?")))
+            flux.append(float(row.get("FLUXCAL", 0)))
+            flux_err.append(float(row.get("FLUXCALERR", 0)))
+            _mag = row.get("MAG")
+            if _mag is not None and _mag != "NULL":
+                try:
+                    mag.append(float(_mag))
+                    mag_err.append(float(row.get("MAGERR", 0)))
+                except ValueError:
+                    mag.append(np.nan)
+                    mag_err.append(np.nan)
+            else:
+                mag.append(np.nan)
+                mag_err.append(np.nan)
+
+    return {
+        "snid": snid, "survey": survey, "ra": ra, "dec": dec,
+        "z_hel": z_hel, "z_cmb": z_cmb, "mwebv": mwebv, "peak_mjd": peak_mjd,
+        "filters": filters,
+        "mjd": np.array(mjd), "band": np.array(band),
+        "flux": np.array(flux), "flux_err": np.array(flux_err),
+        "mag": np.array(mag), "mag_err": np.array(mag_err),
+    }
+
+
+# -------------------------------------------------------- SALT2 standardization kernel
+def standardize_sn_salt2(data: dict, Om: float = 0.3) -> dict:
+    """Tripp standardisation of per-SN SALT2 light-curve fits to a Hubble diagram (tier-1 → tier-2).
+
+    Fits alpha, beta, gamma (mass step at 10^10 Msun) and sigma_int by maximum likelihood,
+    builds mu = mB - M + alpha*x1 - beta*c + gamma*step, and compares with the released mu.
+
+    data = {"z": [...], "zhel": [...], "mB": [...], "mBERR": [...], "x1": [...], "x1ERR": [...],
+            "c": [...], "cERR": [...], "COV_x1_c": [...], "COV_mB_x1": [...], "COV_mB_c": [...],
+            "HOST_LOGMASS": [...], "biasCor_mB": [...] (optional),
+            "VPECERR": [...] (optional, km/s, default 250),
+            "mu_released": [...] (optional, for comparison)}
+
+    Returns: alpha, beta, gamma, sigma_int, M (per-redshift-bin offset), mu, mu_err,
+             residuals_vs_released (if mu_released given), chi2_per_dof.
+    """
+    from scipy.optimize import minimize as sp_minimize
+
+    z = np.asarray(data["z"], float)
+    zhel = np.asarray(data.get("zhel", data["z"]), float)
+    mB = np.asarray(data["mB"], float)
+    mBERR = np.asarray(data["mBERR"], float)
+    x1 = np.asarray(data["x1"], float)
+    x1ERR = np.asarray(data["x1ERR"], float)
+    c = np.asarray(data["c"], float)
+    cERR = np.asarray(data["cERR"], float)
+    cx1c = np.asarray(data["COV_x1_c"], float)
+    cmBx1 = np.asarray(data.get("COV_mB_x1", np.zeros(len(z))), float)
+    cmBc = np.asarray(data.get("COV_mB_c", np.zeros(len(z))), float)
+    mass = np.asarray(data["HOST_LOGMASS"], float)
+    bc = np.asarray(data.get("biasCor_mB", np.zeros(len(z))), float)
+    vpec_err = np.asarray(data.get("VPECERR", np.full(len(z), 250.0)), float)
+    mu_rel = np.asarray(data["mu_released"], float) if "mu_released" in data else None
+
+    n = len(z)
+    step = np.where(mass > 10.0, 0.5, -0.5)
+    # peculiar velocity error in mag
+    sz = 5.0 / np.log(10.0) * vpec_err / C_KMS / np.maximum(z, 1e-4)
+
+    # theory mu at fiducial Om
+    mu_th = distance_modulus(z, zhel, om=Om)
+
+    # Use 10 redshift bins for the offset (approximation of M marginalisation)
+    n_bins = min(10, max(1, n // 30))
+    edges = np.quantile(np.log(np.maximum(z, 1e-6)), np.linspace(0, 1, n_bins + 1))
+    edges[0] -= 1
+    edges[-1] += 1
+    b = np.clip(np.searchsorted(edges, np.log(np.maximum(z, 1e-6))) - 1, 0, n_bins - 1)
+
+    def nll(p):
+        alpha, beta, gamma, log_sig = p
+        mu_obs = mB + alpha * x1 - beta * c + gamma * step - bc
+        var = (mBERR ** 2 + alpha ** 2 * x1ERR ** 2 + beta ** 2 * cERR ** 2
+               + 2 * alpha * cmBx1 - 2 * beta * cmBc - 2 * alpha * beta * cx1c
+               + np.exp(2 * log_sig) + sz ** 2)
+        var = np.maximum(var, 1e-10)  # clamp to avoid log(negative)
+        r = mu_obs - mu_th
+        w = 1.0 / var
+        # per-bin offset
+        off = np.bincount(b, w * r, n_bins) / np.maximum(np.bincount(b, w, n_bins), 1e-30)
+        r = r - off[b]
+        return float(np.sum(r * r / var + np.log(var)))
+
+    res = sp_minimize(nll, [0.15, 3.0, 0.05, np.log(0.1)], method="BFGS")
+    alpha, beta, gamma, log_sig = res.x
+    sigma_int = float(np.exp(log_sig))
+
+    # Rebuild mu at the best fit
+    mu_obs = mB + alpha * x1 - beta * c + gamma * step - bc
+    var = (mBERR ** 2 + alpha ** 2 * x1ERR ** 2 + beta ** 2 * cERR ** 2
+           + 2 * alpha * cmBx1 - 2 * beta * cmBc - 2 * alpha * beta * cx1c
+           + sigma_int ** 2 + sz ** 2)
+    var = np.maximum(var, 1e-10)
+    w = 1.0 / var
+    off = np.bincount(b, w * (mu_obs - mu_th), n_bins) / np.maximum(np.bincount(b, w, n_bins), 1e-30)
+    mu_standardized = mu_obs - off[b]
+    mu_err = np.sqrt(var)
+
+    chi2_resid = float(np.sum(((mu_standardized - mu_th) / mu_err) ** 2))
+    chi2_per_dof = chi2_resid / max(n - 4 - n_bins, 1)
+
+    result = {
+        "alpha": float(alpha), "beta": float(beta), "gamma": float(gamma),
+        "sigma_int": sigma_int,
+        "n_sn": n, "chi2_per_dof": chi2_per_dof,
+        "mu": mu_standardized.tolist(), "mu_err": mu_err.tolist(),
+        "z": z.tolist(), "zhel": zhel.tolist(),
+        "Om_fiducial": Om,
+    }
+
+    if mu_rel is not None:
+        diff = mu_standardized - mu_rel
+        diff -= np.median(diff)
+        result["rms_vs_released_mu"] = float(np.std(diff))
+        result["max_abs_diff_vs_released_mu"] = float(np.max(np.abs(diff)))
+
+    return result
 
 
 def _read_matrix_txt(path) -> np.ndarray:

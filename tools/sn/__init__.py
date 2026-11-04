@@ -17,7 +17,7 @@ from typing import Annotated, Literal
 import numpy as np
 from pydantic import Field, validate_call
 
-from ..common import ArtifactResult, mpl, ok, param_slug, resolve_outdir, save_fig
+from ..common import ArtifactResult, mpl, ok, param_slug, resolve_outdir, save_fig, tier
 from . import io, kernels
 
 __all__ = [
@@ -30,6 +30,11 @@ __all__ = [
     "plot_sn_contours",
     "compare_sn_samples",
     "plot_sn_covariance",
+    # tier-1 tools
+    "fetch_sn_salt2_params",
+    "standardize_sn_salt2",
+    "fetch_sn_lightcurve",
+    "plot_sn_lightcurve",
 ]
 
 DISPATCH_KERNELS = {
@@ -44,6 +49,14 @@ DISPATCH_KERNELS = {
         "duration_hint_s": 1800,
         "returns": "best_fit, chi2_min, n_sn, dof, best_offset_mag, marginals_1d {param: x, post, chi2_profile, "
                    "mean, sd, lo68..hi95}, marginals_2d {'A-B': x, y, post, chi2_profile, hpd_levels_68_95}",
+    },
+    "standardize_sn_salt2": {
+        "function": "sn.kernels.standardize_sn_salt2",
+        "args_shape": "{'data': {'z','zhel','mB','mBERR','x1','x1ERR','c','cERR','COV_x1_c','HOST_LOGMASS',...}, "
+                      "'Om': float (default 0.3)}",
+        "pip_deps": ["numpy", "scipy"],
+        "duration_hint_s": 120,
+        "returns": "alpha, beta, gamma, sigma_int, mu, mu_err, z, chi2_per_dof, rms_vs_released_mu",
     },
 }
 
@@ -71,6 +84,7 @@ def _zmin(dataset: str, zmin: float | None) -> float:
 
 
 # ======================================================================= fetch
+@tier(2)
 @validate_call
 def fetch_sn_sample(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the CSV + covariance .npy.")],
@@ -112,6 +126,7 @@ def fetch_sn_sample(
 
 
 # ======================================================================= theory
+@tier(2)
 @validate_call
 def compute_distance_modulus(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the CSV.")],
@@ -175,6 +190,7 @@ def _bin(s: dict, resid: np.ndarray, icov: np.ndarray, edges: np.ndarray):
     return zb, rb, covb, nb, [(edges[b], edges[b + 1]) for b in keep]
 
 
+@tier(2)
 @validate_call
 def bin_hubble_diagram(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the binned CSV + covariance.")],
@@ -217,6 +233,7 @@ def bin_hubble_diagram(
 
 
 # ================================================================= plotting
+@tier(2)
 @validate_call
 def plot_hubble_diagram(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the PNG.")],
@@ -284,6 +301,7 @@ def plot_hubble_diagram(
               rms_residual=float(np.std(resid[~cal])) if (~cal).any() else None)
 
 
+@tier(2)
 @validate_call
 def plot_sn_covariance(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the PNG.")],
@@ -323,6 +341,7 @@ def _sample_arrays(dataset: str, zmin, zmax, calibrators) -> dict:
     return s
 
 
+@tier(2)
 @validate_call
 def compute_sn_chi2(
     dataset: Annotated[Dataset, Field(description="SN sample.")] = "pantheonplus",
@@ -374,6 +393,7 @@ def _write_fit(out: Path, tag: str, res: dict) -> list[Path]:
     return files
 
 
+@tier(2)
 @validate_call
 def fit_sn_cosmology(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for summary JSON + marginal/contour CSVs.")],
@@ -461,6 +481,7 @@ def _draw_contour(ax, path, color, label, filled=True):
     return a, b
 
 
+@tier(2)
 @validate_call
 def plot_sn_contours(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the PNG.")],
@@ -527,6 +548,7 @@ def _gauss_tension(m1, c1, m2, c2) -> dict:
     return {"chi2": chi2, "dof": len(d), "p_value": p, "sigma_equiv": float(stats.norm.isf(p / 2))}
 
 
+@tier(2)
 @validate_call
 def compare_sn_samples(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for PNG + CSV/JSON outputs.")],
@@ -646,3 +668,244 @@ def compare_sn_samples(
 
 
 compare_sn_samples.weight = "heavy"
+
+
+# ================================================================= tier-1 tools
+
+Salt2Dataset = Literal["pantheonplus", "des5yr"]
+LCDataset = Literal["pantheonplus", "des5yr"]
+
+
+@tier(1)
+@validate_call
+def fetch_sn_salt2_params(
+    output_dir: Annotated[str, Field(min_length=1, description="Directory for the CSV.")],
+    dataset: Annotated[Salt2Dataset, Field(description="pantheonplus or des5yr.")] = "pantheonplus",
+    zmin: Annotated[float, Field(ge=0.0, le=3.0, description="Keep z > zmin.")] = 0.0,
+    zmax: Annotated[float, Field(gt=0.0, le=10.0, description="Keep z <= zmax.")] = 10.0,
+) -> ArtifactResult:
+    """Fetch per-SN SALT2/SALT3 light-curve fit parameters: x1, c, mB and their errors and covariances,
+    HOST_LOGMASS and bias corrections.
+
+    Use this to get the TIER-1 (catalog-level) data needed for Tripp standardisation via
+    standardize_sn_salt2. Pantheon+ uses SALT2 fits (Brout+22); DES-SN5YR uses SALT3 (Kenworthy+21).
+    The output CSV has one row per SN and includes the released distance modulus for comparison.
+    """
+    d = io.load_salt2_params(dataset)
+    z = d["z"]
+    m = (z > zmin) & (z <= zmax)
+    out = resolve_outdir(output_dir)
+    cols = ["cid", "z", "zhel", "mB", "mBERR", "x1", "x1ERR", "c", "cERR",
+            "COV_x1_c", "COV_mB_x1", "COV_mB_c", "HOST_LOGMASS", "HOST_LOGMASS_ERR",
+            "biasCor_mB", "mu_released", "survey", "is_calibrator"]
+    rows = []
+    for i in range(len(z)):
+        if not m[i]:
+            continue
+        row = []
+        for c in cols:
+            v = d[c][i] if c in d else ""
+            if isinstance(v, (np.floating, float)):
+                row.append(round(float(v), 6))
+            elif isinstance(v, (np.integer, int)):
+                row.append(int(v))
+            else:
+                row.append(str(v))
+        rows.append(row)
+    path = _write_csv(out / f"{dataset}_salt2_params.csv", cols, rows)
+    from ..registry import DATASETS
+    return ok(f"{len(rows)} {_LABELS[dataset]} SALT2/SALT3 fit parameters (z in ({zmin}, {zmax}]).",
+              [path], dataset=dataset, n_sn=len(rows), salt_version=d["salt_version"],
+              columns=cols, citation=DATASETS[dataset]["citation"])
+
+
+@tier(1)
+@validate_call
+def standardize_sn_salt2(
+    output_dir: Annotated[str, Field(min_length=1, description="Directory for the Hubble diagram CSV + summary JSON.")],
+    dataset: Annotated[Salt2Dataset, Field(description="pantheonplus or des5yr.")] = "pantheonplus",
+    zmin: Annotated[float, Field(ge=0.0, le=3.0, description="Keep z > zmin (Pantheon+ cosmology cut is 0.01).")] = 0.01,
+    zmax: Annotated[float, Field(gt=0.0, le=10.0, description="Keep z <= zmax.")] = 10.0,
+    exclude_calibrators: Annotated[bool, Field(description="Drop Cepheid-host calibrators (IS_CALIBRATOR=1).")] = True,
+    Om: Annotated[float, Field(gt=0.0, lt=1.0, description="Fiducial flat-LCDM Om for the distance prior.")] = 0.3,
+) -> ArtifactResult:
+    """Tripp standardisation: build a Hubble diagram from per-SN SALT2 fits (TIER-1 → TIER-2).
+
+    Fits alpha (stretch), beta (colour), gamma (host-mass step at 10^10 Msun) and sigma_int
+    by maximum likelihood: mu = mB - M + alpha*x1 - beta*c ± gamma/2 - biasCor.
+    Literature: Pantheon+ alpha~0.15, beta~3.0, gamma~0.05; DES-SN5YR alpha=0.161, beta=3.12, gamma=0.038.
+    The tool compares the resulting mu with the released Hubble diagram (rms_vs_released_mu should be
+    ~few mmag for Pantheon+ and ~20 mmag for DES, since we use a diagonal approximation).
+    Uses ONLY tier-1 inputs (SALT2 fit parameters); never tier-3 posteriors.
+    """
+    d = io.load_salt2_params(dataset)
+    z = d["z"]
+    m = (z > zmin) & (z <= zmax)
+    if exclude_calibrators and "is_calibrator" in d:
+        m &= ~(np.asarray(d["is_calibrator"]).astype(bool))
+    # Build dict of arrays for the kernel
+    keys = ["z", "zhel", "mB", "mBERR", "x1", "x1ERR", "c", "cERR",
+            "COV_x1_c", "COV_mB_x1", "COV_mB_c", "HOST_LOGMASS", "biasCor_mB", "VPECERR"]
+    data = {}
+    for k in keys:
+        if k in d:
+            arr = np.asarray(d[k])
+            data[k] = arr[m].tolist()
+    data["mu_released"] = np.asarray(d["mu_released"])[m].tolist()
+    cids = [c for c, keep in zip(d["cid"], m, strict=False) if keep]
+
+    res = kernels.standardize_sn_salt2(data, Om=Om)
+
+    out = resolve_outdir(output_dir)
+    tag = f"{dataset}_standardized"
+    # Write CSV
+    hd_rows = list(zip(cids, res["z"], res["zhel"], res["mu"], res["mu_err"], strict=True))
+    csv_path = _write_csv(out / f"{tag}_hd.csv",
+                          ["cid", "z", "zhel", "mu", "mu_err"],
+                          [(c, round(z, 6), round(zh, 6), round(mu, 5), round(me, 5))
+                           for c, z, zh, mu, me in hd_rows])
+    # Write summary JSON
+    summ = {k: v for k, v in res.items() if k not in ("mu", "mu_err", "z", "zhel")}
+    summ_path = out / f"{tag}_summary.json"
+    summ_path.write_text(json.dumps(summ, indent=2))
+
+    from ..registry import DATASETS
+    txt = (f"alpha={res['alpha']:.3f}, beta={res['beta']:.3f}, gamma={res['gamma']:.3f}, "
+           f"sigma_int={res['sigma_int']:.4f}")
+    return ok(f"{_LABELS[dataset]} Tripp standardisation ({res['n_sn']} SNe): {txt}.",
+              [csv_path, summ_path], dataset=dataset, **summ,
+              citation=DATASETS[dataset]["citation"])
+
+
+standardize_sn_salt2.weight = "heavy"
+
+
+@tier(1)
+@validate_call
+def fetch_sn_lightcurve(
+    output_dir: Annotated[str, Field(min_length=1, description="Directory for the light-curve CSV(s).")],
+    cid: Annotated[str, Field(min_length=1, description="SN candidate ID (e.g. '2011fe', '523183', '2254').")],
+    dataset: Annotated[LCDataset, Field(description="pantheonplus (SNANA text files, per-SN download) "
+                                        "or des5yr (extracted from DES5YR_SALT3_LCFIT.LCPLOT.gz).")] = "pantheonplus",
+) -> ArtifactResult:
+    """Download and parse raw photometric light-curve data for one SN Ia (tier-1).
+
+    Pantheon+ light curves are individual SNANA .dat files from PantheonPlusSH0ES/DataRelease
+    (downloaded on demand). DES-SN5YR light curves come from the SALT3 fit LCPLOT file (data +
+    model columns; 7.4 MB download on first use). Returns a CSV with mjd, band, flux, flux_err
+    (and mag where available). Use plot_sn_lightcurve to visualise.
+    """
+    out = resolve_outdir(output_dir)
+    files = []
+    if dataset == "pantheonplus":
+        lcs = io.fetch_pantheonplus_lc(cid)
+        for lc in lcs:
+            tag = f"lc_{dataset}_{cid}_{lc['folder']}"
+            rows = list(zip(lc["mjd"], lc["band"], lc["flux"], lc["flux_err"],
+                            lc["mag"], lc["mag_err"], strict=True))
+            path = _write_csv(out / f"{tag}.csv", ["mjd", "band", "flux", "flux_err", "mag", "mag_err"],
+                              [(round(m, 4), b, round(f, 4), round(fe, 4),
+                                round(mg, 4) if np.isfinite(mg) else "",
+                                round(me, 4) if np.isfinite(me) else "")
+                               for m, b, f, fe, mg, me in rows])
+            files.append(path)
+        meta = {"snid": lcs[0]["snid"], "survey": lcs[0]["survey"], "z_hel": lcs[0]["z_hel"],
+                "z_cmb": lcs[0]["z_cmb"], "filters": lcs[0]["filters"], "peak_mjd": lcs[0]["peak_mjd"],
+                "n_obs": sum(len(lc["mjd"]) for lc in lcs), "n_files": len(lcs),
+                "folders": [lc["folder"] for lc in lcs]}
+    elif dataset == "des5yr":
+        lc = io.fetch_des5yr_lc(cid)
+        if lc is None:
+            raise ValueError(f"CID {cid!r} not found in DES-SN5YR LCPLOT file.")
+        data_mask = lc["data_model"] == 0
+        tag = f"lc_{dataset}_{cid}"
+        rows = list(zip(lc["mjd"][data_mask], lc["band"][data_mask],
+                        lc["flux"][data_mask], lc["flux_err"][data_mask], strict=True))
+        path = _write_csv(out / f"{tag}.csv", ["mjd", "band", "flux", "flux_err"],
+                          [(round(m, 4), b, round(f, 4), round(fe, 4)) for m, b, f, fe in rows])
+        files.append(path)
+        meta = {"snid": cid, "n_obs": int(data_mask.sum()),
+                "bands": list(np.unique(lc["band"][data_mask]))}
+    else:
+        raise ValueError(f"dataset must be 'pantheonplus' or 'des5yr', got {dataset!r}")
+
+    return ok(f"Light curve for SN {cid} ({_LABELS[dataset]}): {meta.get('n_obs', '?')} observations.",
+              files, dataset=dataset, **meta)
+
+
+@tier(1)
+@validate_call
+def plot_sn_lightcurve(
+    output_dir: Annotated[str, Field(min_length=1, description="Directory for the PNG.")],
+    cid: Annotated[str, Field(min_length=1, description="SN candidate ID.")],
+    dataset: Annotated[LCDataset, Field(description="pantheonplus or des5yr.")] = "pantheonplus",
+    flux_space: Annotated[bool, Field(description="Plot in flux (True) or magnitude (False, inverted axis).")] = True,
+) -> ArtifactResult:
+    """Plot a SN Ia multi-band light curve (tier-1 photometry).
+
+    Downloads the light curve on demand (same as fetch_sn_lightcurve) and makes a publication-style
+    plot with one colour per band. Flux space (default) shows the SALT2 flux calibration; magnitude
+    space inverts the y-axis and uses mag where available.
+    """
+    plt = mpl()
+    out = resolve_outdir(output_dir)
+    band_colors = {"u": "indigo", "g": "green", "r": "red", "i": "darkorange", "z": "brown", "Y": "darkred",
+                   "B": "blue", "V": "green", "R": "red", "I": "darkorange",
+                   "U": "violet", "J": "saddlebrown", "H": "olive", "K": "black",
+                   "c": "cyan", "o": "orange", "w": "gray", "G": "green"}
+
+    if dataset == "pantheonplus":
+        lcs = io.fetch_pantheonplus_lc(cid)
+        fig, ax = plt.subplots(figsize=(8, 5))
+        peak = lcs[0]["peak_mjd"]
+        for lc in lcs:
+            bands = np.unique(lc["band"])
+            for b in bands:
+                m = lc["band"] == b
+                color = band_colors.get(b, None)
+                phase = lc["mjd"][m] - (peak if peak else lc["mjd"][m].min())
+                if flux_space:
+                    ax.errorbar(phase, lc["flux"][m], yerr=lc["flux_err"][m],
+                                fmt="o", ms=3, color=color, label=f"{b} ({lc['folder']})", alpha=0.8)
+                else:
+                    good = np.isfinite(lc["mag"][m])
+                    if good.any():
+                        ax.errorbar(phase[good], lc["mag"][m][good], yerr=lc["mag_err"][m][good],
+                                    fmt="o", ms=3, color=color, label=f"{b} ({lc['folder']})", alpha=0.8)
+        ylabel = "flux (FLUXCAL)" if flux_space else "magnitude"
+        title_extra = f"z={lcs[0]['z_hel']:.4f}" if lcs[0]["z_hel"] else ""
+    elif dataset == "des5yr":
+        lc = io.fetch_des5yr_lc(cid)
+        if lc is None:
+            raise ValueError(f"CID {cid!r} not found in DES-SN5YR LCPLOT.")
+        fig, ax = plt.subplots(figsize=(8, 5))
+        bands = np.unique(lc["band"])
+        data_mask = lc["data_model"] == 0
+        model_mask = lc["data_model"] == 1
+        for b in bands:
+            bm = lc["band"] == b
+            color = band_colors.get(b, None)
+            dm = bm & data_mask
+            if dm.any():
+                ax.errorbar(lc["phase"][dm], lc["flux"][dm], yerr=lc["flux_err"][dm],
+                            fmt="o", ms=3, color=color, label=f"{b} data", alpha=0.8)
+            mm = bm & model_mask
+            if mm.any():
+                order = np.argsort(lc["phase"][mm])
+                ax.plot(lc["phase"][mm][order], lc["flux"][mm][order], "-", color=color, alpha=0.5, lw=1)
+        ylabel = "flux (FLUXCAL)"
+        title_extra = ""
+        flux_space = True  # DES LCPLOT is always in flux
+    else:
+        raise ValueError("dataset must be 'pantheonplus' or 'des5yr'")
+
+    ax.set_xlabel("phase [days from peak]" if dataset == "pantheonplus" else "phase [days]")
+    ax.set_ylabel(ylabel)
+    if not flux_space:
+        ax.invert_yaxis()
+    ax.legend(fontsize=7, frameon=False, ncol=3, loc="best")
+    ax.set_title(f"SN {cid} ({_LABELS[dataset]}) {title_extra}", fontsize=11)
+    if flux_space:
+        ax.axhline(0, color="k", lw=0.5, ls=":")
+    path = save_fig(fig, out, f"lc_{dataset}_{cid}")
+    return ok(f"Light curve plot for SN {cid} ({_LABELS[dataset]}).", [path], dataset=dataset, cid=cid)

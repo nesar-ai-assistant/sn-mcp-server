@@ -20,9 +20,13 @@ from tools.sn import (  # noqa: E402
     compute_distance_modulus,
     compute_sn_chi2,
     fetch_sn_sample,
+    fetch_sn_lightcurve,
+    fetch_sn_salt2_params,
     fit_sn_cosmology,
     plot_hubble_diagram,
     plot_sn_contours,
+    plot_sn_lightcurve,
+    standardize_sn_salt2,
 )
 from tools.sn import kernels  # noqa: E402
 
@@ -176,3 +180,115 @@ def test_dispatch_branch_with_source(tmp_path, monkeypatch):
     assert calls["args"]["source"]["dataset"] == "union3"
     assert r.metadata["computed_on"] == "fake-node"
     assert r.metadata["marginals"]["Om"]["mean"] == pytest.approx(0.356, abs=0.01)
+
+
+# ------------------------------------------------------------------ tier-1: SALT2 params
+def test_fetch_salt2_params_pantheonplus(tmp_path):
+    """fetch_sn_salt2_params returns a CSV with the expected SALT2 columns (offline, bundled data)."""
+    r = fetch_sn_salt2_params(str(tmp_path), dataset="pantheonplus", zmin=0.01, zmax=0.05)
+    assert r.status == "success"
+    assert r.metadata["salt_version"] == "SALT2"
+    assert r.metadata["n_sn"] > 10
+    csv_path = r.files[0]
+    import csv as csv_mod
+    with open(csv_path) as fh:
+        reader = csv_mod.DictReader(fh)
+        rows = list(reader)
+    assert len(rows) == r.metadata["n_sn"]
+    # Check required columns
+    for col in ("cid", "z", "mB", "x1", "c", "HOST_LOGMASS"):
+        assert col in rows[0], f"missing column {col}"
+    # Check that z values are in range
+    for row in rows:
+        z = float(row["z"])
+        assert 0.01 < z <= 0.05
+
+
+def test_fetch_salt2_params_has_tier(tmp_path):
+    assert fetch_sn_salt2_params.data_tier == 1
+
+
+# ------------------------------------------------------------------ tier-1: standardize
+def test_standardize_salt2_pantheonplus(tmp_path):
+    """standardize_sn_salt2 recovers alpha~0.15, beta~3.0 from Pantheon+ (offline, bundled)."""
+    r = standardize_sn_salt2(str(tmp_path), dataset="pantheonplus", zmin=0.01, zmax=2.3)
+    assert r.status == "success"
+    alpha = r.metadata["alpha"]
+    beta = r.metadata["beta"]
+    gamma = r.metadata["gamma"]
+    assert 0.10 < alpha < 0.20, f"alpha={alpha} outside expected range"
+    assert 2.5 < beta < 3.5, f"beta={beta} outside expected range"
+    assert -0.02 < gamma < 0.12, f"gamma={gamma} outside expected range"
+    assert r.metadata["n_sn"] > 1500
+    # rms_vs_released should be modest (diagonal approx without full systematic covariance: < 60 mmag)
+    assert r.metadata["rms_vs_released_mu"] < 0.06
+
+
+def test_standardize_has_tier(tmp_path):
+    assert standardize_sn_salt2.data_tier == 1
+
+
+# ------------------------------------------------------------------ tier-1: light curves
+def test_lc_index_loads():
+    """The bundled lc_index.csv is readable and has entries."""
+    from tools.sn.io import load_lc_index
+    idx = load_lc_index()
+    assert len(idx) > 1000
+    assert all("cid" in r and "folder" in r and "path" in r for r in idx[:5])
+
+
+@pytest.mark.skipif(os.environ.get("SN_SKIP_NETWORK"), reason="network tests skipped")
+def test_fetch_lc_pantheonplus(tmp_path):
+    """fetch_sn_lightcurve downloads a known SN from Pantheon+ (network)."""
+    r = fetch_sn_lightcurve(str(tmp_path), cid="2011fe", dataset="pantheonplus")
+    assert r.status == "success"
+    assert r.metadata["n_obs"] > 50  # SN 2011fe is well-observed
+
+
+@pytest.mark.skipif(os.environ.get("SN_SKIP_NETWORK"), reason="network tests skipped")
+def test_plot_lc_pantheonplus(tmp_path):
+    """plot_sn_lightcurve produces a PNG for a known SN (network)."""
+    r = plot_sn_lightcurve(str(tmp_path), cid="2011fe", dataset="pantheonplus")
+    assert r.status == "success"
+    assert any(str(f).endswith(".png") for f in r.files)
+
+
+def test_lc_tools_have_tier():
+    assert fetch_sn_lightcurve.data_tier == 1
+    assert plot_sn_lightcurve.data_tier == 1
+
+
+# ------------------------------------------------------------------ kernel: parse SNANA LC
+def test_parse_snana_lc():
+    """parse_snana_lc parses a minimal SNANA-format light curve."""
+    text = """\
+SURVEY:  CfA3
+SNID: 2005el
+FILTERS: UBVRri
+RA: 18.8333
+DECL: 5.4167
+REDSHIFT_HELIO: 0.0149 +- 0.0001
+MWEBV: 0.034
+SEARCH_PEAKMJD: 53634.0
+
+VARLIST: MJD FLT FLUXCAL FLUXCALERR MAG MAGERR
+OBS: 53623.0 B 100.0 10.0 20.0 0.11
+OBS: 53624.0 V 200.0 15.0 19.0 0.08
+OBS: 53625.0 r 300.0 20.0 18.5 0.07
+END:
+"""
+    lc = kernels.parse_snana_lc(text)
+    assert lc["snid"] == "2005el"
+    assert lc["survey"] == "CfA3"
+    assert lc["z_hel"] == pytest.approx(0.0149, abs=0.001)
+    assert len(lc["mjd"]) == 3
+    assert lc["flux"][0] == pytest.approx(100.0)
+    assert lc["band"][1] == "V"
+
+
+# ------------------------------------------------------------------ dispatch manifest includes standardize
+def test_standardize_in_dispatch_manifest():
+    assert "standardize_sn_salt2" in DISPATCH_KERNELS
+    d = DISPATCH_KERNELS["standardize_sn_salt2"]
+    assert "function" in d
+    assert "numpy" in d["pip_deps"]

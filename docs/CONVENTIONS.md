@@ -29,6 +29,25 @@ The wrapper is derived from `desc_mcp_server` (HEP-KE pattern, with IRI dispatch
   docs/CONVENTIONS.md     this file (copied verbatim; per-server notes go in docs/SERVER_NOTES.md)
 ```
 
+## Data tiers (family-wide; the point of these servers is tier-1/2 analysis)
+| tier | what | examples | use in hep-genesis analyses |
+|---|---|---|---|
+| 1 | raw / catalog-level | galaxy & cluster catalogs, SN light curves / SALT2 fits, shear catalogs, CMB maps | PRIMARY input |
+| 2 | processed summary statistics + covariance | xi+-, C_ell, CMB bandpowers, BAO D/r_d, Hubble diagram mu(z), binned counts, n(z), selection functions | PRIMARY input |
+| 3 | published inference products | posterior chains, S8/H0/Om constraints, best-fit theory | COMPARISON ONLY |
+
+Rules:
+- Every science tool carries `@tier(1|2|3|"meta")` (from tools.common, above `@validate_call`). The server
+  prefixes the tool description with the tier; results carry `metadata["data_tier"]`; tier-3 results also
+  carry `metadata["tier3_notice"]`.
+- Never mix tiers inside one tool: a tool that fits tier-2 data must not silently add a tier-3 posterior as
+  a prior. Gaussian priors are explicit, user-supplied arguments, labelled as such in the output.
+- `tools/registry.py` products are split `{"tier1": [...], "tier2": [...], "tier3": [...]}`.
+- Every server must expose >= 1 tier-1 and >= 1 tier-2 dataset with tools (contract-tested).
+- Tier-1 data that is large is downloaded on demand in SUBSETS (sky patch, tile, z range, nside) and heavy
+  tier-1 -> tier-2 reductions (e.g. measuring xi(s), xi+- or C_ell from a catalog/map) are DISPATCH_KERNELS.
+- Skills build analyses from tier 1-2 and end with a "compare to published (tier 3)" step.
+
 ## Tool rules
 - Every tool: `@validate_call`, `Annotated[..., Field(description=...)]` args, docstring that says
   WHEN to use it, returns `ArtifactResult` (via `ok(message, files, **metadata)`).

@@ -7,6 +7,8 @@ Conventions (identical across the cosmo-*-mcp-server family):
 - remote data is downloaded on first use into the data cache
   (``$COSMO_MCP_DATA`` or ``~/.cache/cosmo-mcp/<server>``); small canonical
   tables may be bundled in ``data/`` and are always tried first
+- every science tool declares the DATA TIER it works on with ``@tier(n)``
+  (see TIERS below); tier-3 results are stamped comparison-only
 - heavy tools set ``fn.weight = "heavy"`` (serialized, heartbeated, HPC
   dispatchable); default weight is "light"
 """
@@ -42,6 +44,47 @@ class ArtifactResult(BaseModel):
 def ok(message: str, files: list | None = None, **metadata) -> ArtifactResult:
     return ArtifactResult(status="success", files=[str(f) for f in (files or [])],
                           message=message, metadata=metadata)
+
+
+# ---------------------------------------------------------------- data tiers
+TIERS: dict = {
+    1: "tier 1 - raw / catalog-level (per-object catalogs, photometry, light curves, maps, shear catalogs)",
+    2: "tier 2 - processed summary statistics measured from tier-1 data (data vectors with covariances: "
+       "xi+-, C_ell, bandpowers, BAO distances, Hubble diagrams, binned counts, n(z), selection functions)",
+    3: "tier 3 - fully processed inference products (posterior chains, parameter constraints such as S8/H0/Om, "
+       "best-fit theory); COMPARISON ONLY, never an analysis input",
+    "meta": "discovery / skills / plotting of any tier",
+}
+TIER3_NOTICE = ("TIER-3 (published inference product, COMPARISON ONLY): use only to compare with your own analysis of "
+                "tier-1/tier-2 data. Do not feed it into fits as if it were a measurement, and label it "
+                "as a published result in any report.")
+
+
+def tier(level):
+    """Declare the data tier a tool works on: @tier(1) / @tier(2) / @tier(3) / @tier("meta").
+
+    Put it ABOVE @validate_call. Sets ``fn.data_tier`` (the server prefixes the
+    tool description with the tier) and stamps ``metadata["data_tier"]`` on every
+    result; tier-3 results also get ``metadata["tier3_notice"]``.
+    """
+    if level not in TIERS:
+        raise ValueError(f"tier must be one of {list(TIERS)}")
+
+    def deco(fn):
+        import functools
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            res = fn(*args, **kwargs)
+            if isinstance(res, ArtifactResult):
+                res.metadata.setdefault("data_tier", level)
+                if level == 3:
+                    res.metadata.setdefault("tier3_notice", TIER3_NOTICE)
+            return res
+
+        wrapper.data_tier = level
+        return wrapper
+    return deco
 
 
 # ---------------------------------------------------------------- caching
