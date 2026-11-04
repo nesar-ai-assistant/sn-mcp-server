@@ -47,7 +47,7 @@ Rules:
 - Large catalogs/maps download on demand as subsets (sky patch, tile, z range, nside, rows); heavy
   catalog -> summary-statistic reductions (xi(s), xi+-, C_ell, standardisation) are DISPATCH_KERNELS.
 - Skills build analyses from catalogs/summary statistics and end with a "compare with published results" step.
-- Do NOT use "tier 1/2/3" wording in code, docs, tool descriptions or skills.
+- Describe data by what it is (catalog, map, data vector, bandpowers, chain, ...), not by invented level labels.
 
 ## Tool rules
 - Every tool: `@validate_call`, `Annotated[..., Field(description=...)]` args, docstring that says
