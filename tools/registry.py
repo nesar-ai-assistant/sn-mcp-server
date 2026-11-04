@@ -8,20 +8,20 @@ verified by download during development (2026-11-04).
 
 from .sn.kernels import SOURCES
 
-_TIER2_TOOLS = ["fetch_sn_sample", "bin_hubble_diagram", "plot_hubble_diagram", "fit_sn_cosmology",
+_SUMMARY_STATISTIC_TOOLS = ["fetch_sn_sample", "bin_hubble_diagram", "plot_hubble_diagram", "fit_sn_cosmology",
                 "plot_sn_contours", "compare_sn_samples", "compute_sn_chi2", "plot_sn_covariance"]
-_TIER1_TOOLS = ["fetch_sn_salt2_params", "standardize_sn_salt2",
+_CATALOG_TOOLS = ["fetch_sn_salt2_params", "standardize_sn_salt2",
                 "fetch_sn_lightcurve", "plot_sn_lightcurve"]
 
 DATASETS: dict[str, dict] = {
     "pantheonplus": {
         "title": "Pantheon+ SN Ia compilation (1701 light curves of 1550 SNe, 18 surveys)",
         "products": {
-            "tier1": ["per-SN SALT2 fit parameters (x1, c, mB, errors, covariances, HOST_LOGMASS) for 1701 LCs",
+            "catalog": ["per-SN SALT2 fit parameters (x1, c, mB, errors, covariances, HOST_LOGMASS) for 1701 LCs",
                       "photometric light curves for ~1220 SNe (SNANA text format, per-survey folders)"],
-            "tier2": ["per-SN Hubble diagram (zHD, zHEL, m_b_corr, MU_SH0ES, IS_CALIBRATOR)",
+            "summary_statistic": ["per-SN Hubble diagram (zHD, zHEL, m_b_corr, MU_SH0ES, IS_CALIBRATOR)",
                       "STAT+SYS covariance 1701x1701 (mu)"],
-            "tier3": ["published MCMC chains (flat LCDM, flat wCDM, flat w0waCDM, SN-only and SN+SH0ES)"],
+            "published_result": ["published MCMC chains (flat LCDM, flat wCDM, flat w0waCDM, SN-only and SN+SH0ES)"],
         },
         "access": "Hubble diagram + SALT2 params bundled (data/pantheonplus/Pantheon+SH0ES.dat, 579 kB); "
                   "covariance downloaded on first use (33 MB text, cached as .npy); "
@@ -39,17 +39,17 @@ DATASETS: dict[str, dict] = {
                              "flat wCDM (SN only, Brout+22)": "Om = 0.309 +0.063/-0.069, w = -0.90 +- 0.14",
                              "Tripp alpha (Brout+22)": "~0.15", "Tripp beta (Brout+22)": "~3.0",
                              "mass step gamma (Brout+22)": "~0.05 mag"},
-        "tools": _TIER2_TOOLS + _TIER1_TOOLS,
+        "tools": _SUMMARY_STATISTIC_TOOLS + _CATALOG_TOOLS,
     },
     "des5yr": {
         "title": "DES-SN5YR (Vincenzi+24 / DES Collaboration 2024): 1635 DES SNe + 194 low-z = 1829",
         "products": {
-            "tier1": ["per-SN SALT3 fit parameters (x1, c, mB via x0, errors, covariances, HOST_LOGMASS) "
+            "catalog": ["per-SN SALT3 fit parameters (x1, c, mB via x0, errors, covariances, HOST_LOGMASS) "
                       "from DES-SN5YR_HD+MetaData.csv",
                       "photometric light curves (DES5YR_SALT3_LCFIT.LCPLOT.gz, data+model, 7.4 MB)"],
-            "tier2": ["per-SN Hubble diagram (zHD, zHEL, MU, MUERR_FINAL)",
+            "summary_statistic": ["per-SN Hubble diagram (zHD, zHEL, MU, MUERR_FINAL)",
                       "STAT+SYS systematic covariance 1829x1829 (stat added on the diagonal from MUERR_FINAL)"],
-            "tier3": ["published polychord/emcee chains (flat LCDM, flat wCDM, flat w0waCDM)"],
+            "published_result": ["published polychord/emcee chains (flat LCDM, flat wCDM, flat w0waCDM)"],
         },
         "access": "Hubble diagram bundled (data/des5yr/DES-SN5YR_HD.csv, 92 kB); covariance downloaded "
                   "(16 MB gzip) from the tagged release 1.3; "
@@ -69,14 +69,14 @@ DATASETS: dict[str, dict] = {
                              "Tripp alpha (Vincenzi+24)": "0.161 +- 0.002",
                              "Tripp beta (Vincenzi+24)": "3.118 +- 0.035",
                              "mass step gamma (Vincenzi+24)": "0.038 +- 0.008 mag"},
-        "tools": _TIER2_TOOLS + _TIER1_TOOLS,
+        "tools": _SUMMARY_STATISTIC_TOOLS + _CATALOG_TOOLS,
     },
     "union3": {
         "title": "Union3 + UNITY1.5 (Rubin+2023): 2087 SNe compressed to 22 spline-node distance moduli",
         "products": {
-            "tier1": [],
-            "tier2": ["binned distance moduli at 22 redshift nodes", "22x22 inverse covariance"],
-            "tier3": [],
+            "catalog": [],
+            "summary_statistic": ["binned distance moduli at 22 redshift nodes", "22x22 inverse covariance"],
+            "published_result": [],
         },
         "access": "bundled (data/union3/mu_mat_union3_cosmo=2_mu.fits, 8.6 kB)",
         "urls": [SOURCES["union3"]["hd"], "https://github.com/rubind/union3_release",
@@ -89,14 +89,14 @@ DATASETS: dict[str, dict] = {
                        "Hubble diagram: the compressed nodes are the UNITY posterior. Calibrator selection "
                        "does not apply (no per-SN rows).",
         "reference_values": {"flat LCDM Om (SN only, Rubin+23)": "0.356 +0.028/-0.026"},
-        "tools": _TIER2_TOOLS,
+        "tools": _SUMMARY_STATISTIC_TOOLS,
     },
     "des_dovekie": {
         "title": "DES-Dovekie (Popovic+2026) recalibrated DES-SN5YR: 1820 SNe",
         "products": {
-            "tier1": [],
-            "tier2": ["per-SN Hubble diagram (zHD, zHEL, MU, MUERR)", "STAT+SYS INVERSE covariance (upper-triangle npz)"],
-            "tier3": [],
+            "catalog": [],
+            "summary_statistic": ["per-SN Hubble diagram (zHD, zHEL, MU, MUERR)", "STAT+SYS INVERSE covariance (upper-triangle npz)"],
+            "published_result": [],
         },
         "access": "Hubble diagram bundled (data/des_dovekie/DES-Dovekie_HD.csv, 148 kB); inverse covariance "
                   "downloaded (6 MB npz)",
@@ -106,6 +106,6 @@ DATASETS: dict[str, dict] = {
         "conventions": "The npz stores the inverse of the TOTAL stat+sys covariance (DES-Dovekie-SN_Likelihood.py). "
                        "Optional extra sample; not one of the three headline datasets.",
         "reference_values": {},
-        "tools": _TIER2_TOOLS,
+        "tools": _SUMMARY_STATISTIC_TOOLS,
     },
 }

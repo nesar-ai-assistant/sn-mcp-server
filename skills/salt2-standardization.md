@@ -1,9 +1,9 @@
 ---
 name: salt2-standardization
-description: Build a Hubble diagram from scratch using SALT2 light-curve fit parameters (tier-1 to tier-2) - Tripp formula with alpha, beta, gamma, sigma_int fitted by maximum likelihood
+description: Build a Hubble diagram from scratch using SALT2 light-curve fit parameters (from catalog to Hubble diagram) - Tripp formula with alpha, beta, gamma, sigma_int fitted by maximum likelihood
 ---
 
-# SALT2/SALT3 Tripp Standardisation (tier 1 → tier 2)
+# SALT2/SALT3 Tripp Standardisation (from catalog to Hubble diagram)
 
 Goal: turn per-SN SALT2 fit parameters (x1, c, mB, errors, covariances,
 host mass) into a standardised Hubble diagram mu(z), fitting the nuisance
@@ -47,7 +47,7 @@ rms_vs_released_mu.
 - chi2_per_dof should be ~1
 
 ### 4. Use the result
-The standardised mu(z) is a tier-2 Hubble diagram. Feed it to
+The standardised mu(z) is a Hubble diagram (summary statistic). Feed it to
 fit_sn_cosmology or compare it with the released HD from fetch_sn_sample.
 
 ## Pitfalls
@@ -57,4 +57,4 @@ fit_sn_cosmology or compare it with the released HD from fetch_sn_sample.
 - This tool uses a DIAGONAL per-SN variance, not the full N×N systematic covariance.
   The released HD incorporates the full covariance + BEAMS probability weighting, so
   the two will differ by ~30-50 mmag rms. This is expected and documented.
-- The tool does NOT use any tier-3 inputs (published chains or posteriors).
+- The tool does NOT use any published results (chains or posteriors) as inputs.

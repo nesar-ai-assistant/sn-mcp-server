@@ -182,7 +182,7 @@ def test_dispatch_branch_with_source(tmp_path, monkeypatch):
     assert r.metadata["marginals"]["Om"]["mean"] == pytest.approx(0.356, abs=0.01)
 
 
-# ------------------------------------------------------------------ tier-1: SALT2 params
+# ------------------------------------------------------------------ per-SN light-curve fit parameters
 def test_fetch_salt2_params_pantheonplus(tmp_path):
     """fetch_sn_salt2_params returns a CSV with the expected SALT2 columns (offline, bundled data)."""
     r = fetch_sn_salt2_params(str(tmp_path), dataset="pantheonplus", zmin=0.01, zmax=0.05)
@@ -204,11 +204,11 @@ def test_fetch_salt2_params_pantheonplus(tmp_path):
         assert 0.01 < z <= 0.05
 
 
-def test_fetch_salt2_params_has_tier(tmp_path):
-    assert fetch_sn_salt2_params.data_tier == 1
+def test_fetch_salt2_params_is_catalog(tmp_path):
+    assert fetch_sn_salt2_params.data_kind == "catalog"
 
 
-# ------------------------------------------------------------------ tier-1: standardize
+# ------------------------------------------------------------------ Tripp standardisation
 def test_standardize_salt2_pantheonplus(tmp_path):
     """standardize_sn_salt2 recovers alpha~0.15, beta~3.0 from Pantheon+ (offline, bundled)."""
     r = standardize_sn_salt2(str(tmp_path), dataset="pantheonplus", zmin=0.01, zmax=2.3)
@@ -224,11 +224,11 @@ def test_standardize_salt2_pantheonplus(tmp_path):
     assert r.metadata["rms_vs_released_mu"] < 0.06
 
 
-def test_standardize_has_tier(tmp_path):
-    assert standardize_sn_salt2.data_tier == 1
+def test_standardize_is_catalog(tmp_path):
+    assert standardize_sn_salt2.data_kind == "catalog"
 
 
-# ------------------------------------------------------------------ tier-1: light curves
+# ------------------------------------------------------------------ light curves
 def test_lc_index_loads():
     """The bundled lc_index.csv is readable and has entries."""
     from tools.sn.io import load_lc_index
@@ -253,9 +253,9 @@ def test_plot_lc_pantheonplus(tmp_path):
     assert any(str(f).endswith(".png") for f in r.files)
 
 
-def test_lc_tools_have_tier():
-    assert fetch_sn_lightcurve.data_tier == 1
-    assert plot_sn_lightcurve.data_tier == 1
+def test_lc_tools_are_catalog():
+    assert fetch_sn_lightcurve.data_kind == "catalog"
+    assert plot_sn_lightcurve.data_kind == "catalog"
 
 
 # ------------------------------------------------------------------ kernel: parse SNANA LC

@@ -7,8 +7,8 @@ Conventions (identical across the cosmo-*-mcp-server family):
 - remote data is downloaded on first use into the data cache
   (``$COSMO_MCP_DATA`` or ``~/.cache/cosmo-mcp/<server>``); small canonical
   tables may be bundled in ``data/`` and are always tried first
-- every science tool declares the DATA TIER it works on with ``@tier(n)``
-  (see TIERS below); tier-3 results are stamped comparison-only
+- every science tool declares the kind of data it works on with ``@data_kind(...)``
+  (catalog / summary_statistic / published_result); published results are stamped comparison-only
 - heavy tools set ``fn.weight = "heavy"`` (serialized, heartbeated, HPC
   dispatchable); default weight is "light"
 """
@@ -46,29 +46,30 @@ def ok(message: str, files: list | None = None, **metadata) -> ArtifactResult:
                           message=message, metadata=metadata)
 
 
-# ---------------------------------------------------------------- data tiers
-TIERS: dict = {
-    1: "tier 1 - raw / catalog-level (per-object catalogs, photometry, light curves, maps, shear catalogs)",
-    2: "tier 2 - processed summary statistics measured from tier-1 data (data vectors with covariances: "
-       "xi+-, C_ell, bandpowers, BAO distances, Hubble diagrams, binned counts, n(z), selection functions)",
-    3: "tier 3 - fully processed inference products (posterior chains, parameter constraints such as S8/H0/Om, "
-       "best-fit theory); COMPARISON ONLY, never an analysis input",
-    "meta": "discovery / skills / plotting of any tier",
+# ---------------------------------------------------------------- data kinds
+DATA_KINDS: dict = {
+    "catalog": "object-level data: catalogs, photometry, light curves, shear catalogs, maps",
+    "summary_statistic": "measurements reduced from catalogs/maps, with covariance: correlation functions, "
+                         "power spectra / bandpowers, BAO distances, Hubble diagrams, binned counts, n(z), "
+                         "selection functions",
+    "published_result": "published inference products: posterior chains, parameter constraints, best-fit "
+                        "theory; for comparison only, never an analysis input",
+    "meta": "discovery / skills",
 }
-TIER3_NOTICE = ("TIER-3 (published inference product, COMPARISON ONLY): use only to compare with your own analysis of "
-                "tier-1/tier-2 data. Do not feed it into fits as if it were a measurement, and label it "
-                "as a published result in any report.")
+COMPARISON_ONLY_NOTICE = ("Published inference product, for comparison only: compare it with your own analysis "
+                          "of catalogs / summary statistics; do not feed it into fits as a measurement, and "
+                          "label it as a published result in reports.")
 
 
-def tier(level):
-    """Declare the data tier a tool works on: @tier(1) / @tier(2) / @tier(3) / @tier("meta").
+def data_kind(kind):
+    """Declare what kind of data a tool works on (put ABOVE @validate_call):
+    "catalog", "summary_statistic", "published_result" or "meta".
 
-    Put it ABOVE @validate_call. Sets ``fn.data_tier`` (the server prefixes the
-    tool description with the tier) and stamps ``metadata["data_tier"]`` on every
-    result; tier-3 results also get ``metadata["tier3_notice"]``.
+    Sets ``fn.data_kind``; stamps ``metadata["data_kind"]`` on results, and
+    published-result tools also get ``metadata["comparison_only"]``.
     """
-    if level not in TIERS:
-        raise ValueError(f"tier must be one of {list(TIERS)}")
+    if kind not in DATA_KINDS:
+        raise ValueError(f"data_kind must be one of {list(DATA_KINDS)}")
 
     def deco(fn):
         import functools
@@ -77,12 +78,12 @@ def tier(level):
         def wrapper(*args, **kwargs):
             res = fn(*args, **kwargs)
             if isinstance(res, ArtifactResult):
-                res.metadata.setdefault("data_tier", level)
-                if level == 3:
-                    res.metadata.setdefault("tier3_notice", TIER3_NOTICE)
+                res.metadata.setdefault("data_kind", kind)
+                if kind == "published_result":
+                    res.metadata.setdefault("comparison_only", COMPARISON_ONLY_NOTICE)
             return res
 
-        wrapper.data_tier = level
+        wrapper.data_kind = kind
         return wrapper
     return deco
 

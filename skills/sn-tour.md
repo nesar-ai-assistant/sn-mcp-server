@@ -50,16 +50,16 @@ residual Hubble diagrams vs flat LCDM Om = 0.3.
 The table of Om values, the wCDM w, the four PNG paths, and one sentence on
 whether the samples agree (they do in LCDM: pairwise Om tensions 0.2-0.8 sigma).
 
-## 8. Tier-1: SALT2 parameters
+## 8. Per-SN light-curve fit parameters
 `fetch_sn_salt2_params(output_dir, dataset="pantheonplus", zmin=0.01)` -> CSV
 with x1, c, mB, HOST_LOGMASS, errors, covariances, bias corrections for 1590 SNe.
 
-## 9. Tier-1 → 2: Tripp standardisation
+## 9. From catalog to Hubble diagram: Tripp standardisation
 `standardize_sn_salt2(output_dir, dataset="pantheonplus")` -> fits alpha, beta,
 gamma, sigma_int. Expected: alpha~0.15, beta~3.0, gamma~0.05. Compares with
 released MU_SH0ES (rms < 50 mmag, limited by diagonal approximation).
 
-## 10. Tier-1: light curve
+## 10. Light curve
 `fetch_sn_lightcurve(output_dir, cid="2011fe", dataset="pantheonplus")` ->
 multi-band LC CSV(s). `plot_sn_lightcurve(output_dir, cid="2011fe")` -> PNG.
 SN 2011fe is a famous nearby Ia (z=0.00082, ~500 observations).

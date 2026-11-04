@@ -213,7 +213,7 @@ def parse_snana_lc(text: str) -> dict:
 
 # -------------------------------------------------------- SALT2 standardization kernel
 def standardize_sn_salt2(data: dict, Om: float = 0.3) -> dict:
-    """Tripp standardisation of per-SN SALT2 light-curve fits to a Hubble diagram (tier-1 → tier-2).
+    """Tripp standardisation of per-SN SALT2 light-curve fits to a Hubble diagram (from catalog to Hubble diagram).
 
     Fits alpha, beta, gamma (mass step at 10^10 Msun) and sigma_int by maximum likelihood,
     builds mu = mB - M + alpha*x1 - beta*c + gamma*step, and compares with the released mu.

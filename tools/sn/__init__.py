@@ -17,7 +17,7 @@ from typing import Annotated, Literal
 import numpy as np
 from pydantic import Field, validate_call
 
-from ..common import ArtifactResult, mpl, ok, param_slug, resolve_outdir, save_fig, tier
+from ..common import ArtifactResult, data_kind, mpl, ok, param_slug, resolve_outdir, save_fig
 from . import io, kernels
 
 __all__ = [
@@ -30,7 +30,7 @@ __all__ = [
     "plot_sn_contours",
     "compare_sn_samples",
     "plot_sn_covariance",
-    # tier-1 tools
+    # catalog-level tools (per-SN fits, light curves)
     "fetch_sn_salt2_params",
     "standardize_sn_salt2",
     "fetch_sn_lightcurve",
@@ -84,7 +84,7 @@ def _zmin(dataset: str, zmin: float | None) -> float:
 
 
 # ======================================================================= fetch
-@tier(2)
+@data_kind("summary_statistic")
 @validate_call
 def fetch_sn_sample(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the CSV + covariance .npy.")],
@@ -126,7 +126,7 @@ def fetch_sn_sample(
 
 
 # ======================================================================= theory
-@tier(2)
+@data_kind("summary_statistic")
 @validate_call
 def compute_distance_modulus(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the CSV.")],
@@ -190,7 +190,7 @@ def _bin(s: dict, resid: np.ndarray, icov: np.ndarray, edges: np.ndarray):
     return zb, rb, covb, nb, [(edges[b], edges[b + 1]) for b in keep]
 
 
-@tier(2)
+@data_kind("summary_statistic")
 @validate_call
 def bin_hubble_diagram(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the binned CSV + covariance.")],
@@ -233,7 +233,7 @@ def bin_hubble_diagram(
 
 
 # ================================================================= plotting
-@tier(2)
+@data_kind("summary_statistic")
 @validate_call
 def plot_hubble_diagram(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the PNG.")],
@@ -301,7 +301,7 @@ def plot_hubble_diagram(
               rms_residual=float(np.std(resid[~cal])) if (~cal).any() else None)
 
 
-@tier(2)
+@data_kind("summary_statistic")
 @validate_call
 def plot_sn_covariance(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the PNG.")],
@@ -341,7 +341,7 @@ def _sample_arrays(dataset: str, zmin, zmax, calibrators) -> dict:
     return s
 
 
-@tier(2)
+@data_kind("summary_statistic")
 @validate_call
 def compute_sn_chi2(
     dataset: Annotated[Dataset, Field(description="SN sample.")] = "pantheonplus",
@@ -393,7 +393,7 @@ def _write_fit(out: Path, tag: str, res: dict) -> list[Path]:
     return files
 
 
-@tier(2)
+@data_kind("summary_statistic")
 @validate_call
 def fit_sn_cosmology(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for summary JSON + marginal/contour CSVs.")],
@@ -481,7 +481,7 @@ def _draw_contour(ax, path, color, label, filled=True):
     return a, b
 
 
-@tier(2)
+@data_kind("summary_statistic")
 @validate_call
 def plot_sn_contours(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the PNG.")],
@@ -548,7 +548,7 @@ def _gauss_tension(m1, c1, m2, c2) -> dict:
     return {"chi2": chi2, "dof": len(d), "p_value": p, "sigma_equiv": float(stats.norm.isf(p / 2))}
 
 
-@tier(2)
+@data_kind("summary_statistic")
 @validate_call
 def compare_sn_samples(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for PNG + CSV/JSON outputs.")],
@@ -670,13 +670,13 @@ def compare_sn_samples(
 compare_sn_samples.weight = "heavy"
 
 
-# ================================================================= tier-1 tools
+# ================================================================= catalog-level tools
 
 Salt2Dataset = Literal["pantheonplus", "des5yr"]
 LCDataset = Literal["pantheonplus", "des5yr"]
 
 
-@tier(1)
+@data_kind("catalog")
 @validate_call
 def fetch_sn_salt2_params(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the CSV.")],
@@ -687,7 +687,7 @@ def fetch_sn_salt2_params(
     """Fetch per-SN SALT2/SALT3 light-curve fit parameters: x1, c, mB and their errors and covariances,
     HOST_LOGMASS and bias corrections.
 
-    Use this to get the TIER-1 (catalog-level) data needed for Tripp standardisation via
+    Use this to get the per-SN catalog data needed for Tripp standardisation via
     standardize_sn_salt2. Pantheon+ uses SALT2 fits (Brout+22); DES-SN5YR uses SALT3 (Kenworthy+21).
     The output CSV has one row per SN and includes the released distance modulus for comparison.
     """
@@ -719,7 +719,7 @@ def fetch_sn_salt2_params(
               columns=cols, citation=DATASETS[dataset]["citation"])
 
 
-@tier(1)
+@data_kind("catalog")
 @validate_call
 def standardize_sn_salt2(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the Hubble diagram CSV + summary JSON.")],
@@ -729,14 +729,14 @@ def standardize_sn_salt2(
     exclude_calibrators: Annotated[bool, Field(description="Drop Cepheid-host calibrators (IS_CALIBRATOR=1).")] = True,
     Om: Annotated[float, Field(gt=0.0, lt=1.0, description="Fiducial flat-LCDM Om for the distance prior.")] = 0.3,
 ) -> ArtifactResult:
-    """Tripp standardisation: build a Hubble diagram from per-SN SALT2 fits (TIER-1 → TIER-2).
+    """Tripp standardisation: build a Hubble diagram from per-SN SALT2 fits (from catalog to Hubble diagram).
 
     Fits alpha (stretch), beta (colour), gamma (host-mass step at 10^10 Msun) and sigma_int
     by maximum likelihood: mu = mB - M + alpha*x1 - beta*c ± gamma/2 - biasCor.
     Literature: Pantheon+ alpha~0.15, beta~3.0, gamma~0.05; DES-SN5YR alpha=0.161, beta=3.12, gamma=0.038.
     The tool compares the resulting mu with the released Hubble diagram (rms_vs_released_mu should be
     ~few mmag for Pantheon+ and ~20 mmag for DES, since we use a diagonal approximation).
-    Uses ONLY tier-1 inputs (SALT2 fit parameters); never tier-3 posteriors.
+    Uses ONLY per-SN light-curve fit parameters; never published posteriors.
     """
     d = io.load_salt2_params(dataset)
     z = d["z"]
@@ -780,7 +780,7 @@ def standardize_sn_salt2(
 standardize_sn_salt2.weight = "heavy"
 
 
-@tier(1)
+@data_kind("catalog")
 @validate_call
 def fetch_sn_lightcurve(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the light-curve CSV(s).")],
@@ -788,7 +788,7 @@ def fetch_sn_lightcurve(
     dataset: Annotated[LCDataset, Field(description="pantheonplus (SNANA text files, per-SN download) "
                                         "or des5yr (extracted from DES5YR_SALT3_LCFIT.LCPLOT.gz).")] = "pantheonplus",
 ) -> ArtifactResult:
-    """Download and parse raw photometric light-curve data for one SN Ia (tier-1).
+    """Download and parse raw photometric light-curve data for one SN Ia.
 
     Pantheon+ light curves are individual SNANA .dat files from PantheonPlusSH0ES/DataRelease
     (downloaded on demand). DES-SN5YR light curves come from the SALT3 fit LCPLOT file (data +
@@ -833,7 +833,7 @@ def fetch_sn_lightcurve(
               files, dataset=dataset, **meta)
 
 
-@tier(1)
+@data_kind("catalog")
 @validate_call
 def plot_sn_lightcurve(
     output_dir: Annotated[str, Field(min_length=1, description="Directory for the PNG.")],
@@ -841,7 +841,7 @@ def plot_sn_lightcurve(
     dataset: Annotated[LCDataset, Field(description="pantheonplus or des5yr.")] = "pantheonplus",
     flux_space: Annotated[bool, Field(description="Plot in flux (True) or magnitude (False, inverted axis).")] = True,
 ) -> ArtifactResult:
-    """Plot a SN Ia multi-band light curve (tier-1 photometry).
+    """Plot a SN Ia multi-band light curve (per-SN photometry).
 
     Downloads the light curve on demand (same as fetch_sn_lightcurve) and makes a publication-style
     plot with one colour per band. Flux space (default) shows the SALT2 flux calibration; magnitude

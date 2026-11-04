@@ -16,7 +16,7 @@ convention matched by the hep-genesis harness.
 | kernel | when worth dispatching | duration_hint_s |
 |---|---|---|
 | `sn.kernels.fit_sn_cosmology` | `model="w0wacdm"` with n_grid >= 61, or many wCDM fits (cut variations, all samples) | 1800 |
-| `sn.kernels.standardize_sn_salt2` | Large datasets with extended SALT2 fits (tier-1 → tier-2 Tripp standardisation) | 120 |
+| `sn.kernels.standardize_sn_salt2` | Large datasets with extended SALT2 fits (Tripp standardisation, from catalog to Hubble diagram) | 120 |
 
 Args (JSON): `{"model": "lcdm"|"wcdm"|"w0wacdm", "source": {"dataset":
 "pantheonplus"|"des5yr"|"union3"|"des_dovekie", "zmin": 0.01, "zmax": 10,

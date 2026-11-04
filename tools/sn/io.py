@@ -58,7 +58,7 @@ def load_sample(dataset: str, zmin: float | None = None, zmax: float = 10.0,
     return kernels.select(load_full(dataset), zmin, zmax, calibrators)
 
 
-# ================================================================= tier-1 helpers
+# ================================================================= catalog-level helpers (per-SN fits, light curves)
 
 def load_salt2_params(dataset: str) -> dict:
     """Load per-SN SALT2/SALT3 light-curve fit parameters for Pantheon+ or DES-SN5YR.
