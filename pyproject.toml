@@ -25,6 +25,7 @@ dev = ["pytest", "anyio", "ruff"]
 [tool.mcp-server]
 name = "Supernova Cosmology MCP Server"
 skill_prefix = "sn"
+port = 8010
 instructions_file = "mcp_server/INSTRUCTIONS.md"
 tool_modules = [
     "tools.meta",

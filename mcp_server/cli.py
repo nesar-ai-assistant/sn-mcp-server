@@ -4,7 +4,7 @@ import signal
 import subprocess
 import time
 
-from .server import run_server
+from .server import run_server, server_config
 
 
 def free_port(port: int) -> None:
@@ -56,8 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--port",
         type=int,
-        default=8000,
-        help="Port for streamable-http transport.",
+        default=int(server_config().get("port", 8000)),
+        help="Port for streamable-http transport (default: [tool.mcp-server].port).",
     )
     return parser
 

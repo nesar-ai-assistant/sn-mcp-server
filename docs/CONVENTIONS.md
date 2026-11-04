@@ -26,7 +26,7 @@ The wrapper is derived from `desc_mcp_server` (HEP-KE pattern, with IRI dispatch
   tests/test_contract.py  family contract (copied verbatim)
   tests/test_<family>.py  science tests; network tests marked @pytest.mark.network
   tests/smoke_server.py   stdio server smoke test
-  docs/CONVENTIONS.md     this file (copied verbatim)
+  docs/CONVENTIONS.md     this file (copied verbatim; per-server notes go in docs/SERVER_NOTES.md)
 ```
 
 ## Tool rules
@@ -60,5 +60,5 @@ The wrapper is derived from `desc_mcp_server` (HEP-KE pattern, with IRI dispatch
 - Tool names set_dispatch / get_dispatch / auth_status / export_dispatch_pack come from
   mcp_server.dispatch (listed last in tool_modules) - never rename.
 
-## Ports (streamable-http defaults for hosted runs)
+## Ports (streamable-http defaults; set `port = N` in [tool.mcp-server], read by cli.py)
 sn 8010, galaxy-surveys 8011, cmb-data 8012, weak-lensing 8013, clusters 8014.
