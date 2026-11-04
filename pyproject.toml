@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sn-mcp-server"
+version = "0.1.0"
+description = "MCP server for Type Ia supernova cosmology: Pantheon+, DES-SN5YR and Union3 Hubble diagrams, full-covariance LCDM/wCDM/w0waCDM fits, contours and sample comparisons."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]>=1.27,<2",
+    "pydantic>=2,<3",
+    "numpy",
+    "scipy",
+    "matplotlib>=3.8",
+    "astropy>=6",
+    "pandas>=2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "anyio", "ruff"]
+# hpc = ["hep-genesis[iri]"]  # server-side dispatch: pip install -e <hep-genesis-agent>/backend[iri]
+
+[tool.mcp-server]
+name = "Supernova Cosmology MCP Server"
+skill_prefix = "sn"
+instructions_file = "mcp_server/INSTRUCTIONS.md"
+tool_modules = [
+    "tools.meta",
+    "tools.sn",
+    "mcp_server.dispatch",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mcp_server*", "tools*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = ["network: needs internet (deselect with -m 'not network')"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B"]
+ignore = ["E501", "B008"]

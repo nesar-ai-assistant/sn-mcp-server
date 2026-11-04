@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "sn": {
+      "command": "python",
+      "args": ["-m", "mcp_server", "--transport", "stdio"]
+    }
+  }
+}
