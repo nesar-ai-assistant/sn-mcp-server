@@ -734,8 +734,8 @@ def standardize_sn_salt2(
     Fits alpha (stretch), beta (colour), gamma (host-mass step at 10^10 Msun) and sigma_int
     by maximum likelihood: mu = mB - M + alpha*x1 - beta*c ± gamma/2 - biasCor.
     Literature: Pantheon+ alpha~0.15, beta~3.0, gamma~0.05; DES-SN5YR alpha=0.161, beta=3.12, gamma=0.038.
-    The tool compares the resulting mu with the released Hubble diagram (rms_vs_released_mu should be
-    ~few mmag for Pantheon+ and ~20 mmag for DES, since we use a diagonal approximation).
+    The tool compares the resulting mu with the released Hubble diagram (rms_vs_released_mu is
+    ~50 mmag for Pantheon+ and ~40 mmag for DES, since we use a diagonal approximation).
     Uses ONLY per-SN light-curve fit parameters; never published posteriors.
     """
     d = io.load_salt2_params(dataset)
